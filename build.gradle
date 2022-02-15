@@ -1,0 +1,166 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'signing'
+    id 'application'
+    id 'jacoco'
+    id "com.diffplug.gradle.spotless" version "3.23.0"
+}
+
+repositories {
+    mavenCentral()
+}
+
+apply from: "$rootDir/gradle/travis-ci.gradle.kts"
+
+sourceCompatibility = JavaVersion.VERSION_1_8
+targetCompatibility = JavaVersion.VERSION_1_8
+
+group 'org.zaproxy'
+version '0.16.0-SNAPSHOT'
+
+mainClassName = 'org.zaproxy.zest.impl.CmdLine'
+
+sourceSets.test.resources.srcDirs 'examples'
+
+dependencies {
+    implementation (
+             'org.apache.httpcomponents:httpclient:4.5.8',
+             'com.google.code.gson:gson:2.8.5',
+             'com.opera:operadriver:1.5',
+             'com.codeborne:phantomjsdriver:1.4.3',
+             'org.seleniumhq.selenium:selenium-server:3.141.59',
+             'org.seleniumhq.selenium:htmlunit-driver:2.36.0',
+             'net.htmlparser.jericho:jericho-html:3.1')
+
+    implementation('com.machinepublishers:jbrowserdriver:1.0.0-RC1') {
+        exclude group: 'org.seleniumhq.selenium'
+    }
+
+    testImplementation('junit:junit:4.11',
+                'com.github.tomakehurst:wiremock-standalone:2.14.0',
+                'org.mockito:mockito-core:2.19.1')
+    testImplementation("org.assertj:assertj-core:3.11.0")
+}
+
+jar {
+    manifest {
+        attributes('Implementation-Version': version,
+        'Main-Class': mainClassName)
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+    options.compilerArgs = [
+        // Enable all warnings,
+        '-Xlint:all',
+        // but allow to compile with newer Java versions.
+        '-Xlint:-options',
+        // Be strict, treat warnings as errors.
+        '-Werror'
+    ]
+}
+
+tasks.withType(Javadoc) {
+    options {
+        links = [ 'https://docs.oracle.com/javase/8/docs/api/' ]
+        encoding = 'UTF-8'
+        source = sourceCompatibility
+    }
+    if (JavaVersion.current().isJava8Compatible()) {
+        options.addStringOption('Xdoclint:none', '-quiet')
+    }
+}
+
+spotless {
+    java {
+        licenseHeaderFile "$projectDir/gradle/spotless/license.java"
+
+        googleJavaFormat().style('AOSP')
+    }
+}
+
+task javadocJar(type: Jar) {
+    from javadoc
+    archiveClassifier.set("javadoc")
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.allJava
+    archiveClassifier.set("sources")
+}
+
+publishing {
+    repositories {
+        maven {
+            def releasesRepoUrl = "https://oss.sonatype.org/service/local/staging/deploy/maven2/"
+            def snapshotsRepoUrl = "https://oss.sonatype.org/content/repositories/snapshots/"
+            url version.endsWith("SNAPSHOT") ? snapshotsRepoUrl : releasesRepoUrl
+
+            if (project.hasProperty('ossrhUsername') && project.hasProperty('ossrhPassword')) {
+                credentials {
+                    username = ossrhUsername
+                    password = ossrhPassword
+                }
+            }
+        }
+    }
+
+    publications {
+        zest(MavenPublication) {
+            from components.java
+
+            artifact sourcesJar
+            artifact javadocJar
+
+            pom {
+                name = 'OWASP ZAP Zest'
+                packaging = 'jar'
+                description = 'Zest is an experimental scripting language (initially) developed by the Mozilla security team designed to be used in web oriented security tools.'
+                url = 'https://github.com/zaproxy/zest'
+
+                organization {
+                    name = 'OWASP'
+                    url = 'https://www.zaproxy.org/'
+                }
+
+                mailingLists {
+                    mailingList {
+                        name = 'OWASP ZAP Zest Group'
+                        post = 'zaproxy-zest@googlegroups.com'
+                        archive = 'https://groups.google.com/group/zaproxy-zest'
+                    }
+                }
+
+                scm {
+                    url = 'https://github.com/zaproxy/zest'
+                    connection = 'scm:git:https://github.com/zaproxy/zest.git'
+                    developerConnection = 'scm:git:https://github.com/zaproxy/zest.git'
+                }
+
+                licenses {
+                    license {
+                        name = 'Mozilla Public License Version 2.0'
+                        url = 'https://mozilla.org/MPL/2.0/'
+                        distribution = 'repo'
+                    }
+                }
+
+                developers {
+                    developer {
+                        id = 'psiinon'
+                        name = 'Simon Bennetts'
+                        email = 'psiinon@gmail.com'
+                    }
+                }
+            }
+        }
+    }
+}
+
+signing {
+    if (project.hasProperty('signing.keyId')) {
+        sign publishing.publications.zest
+    }
+}
